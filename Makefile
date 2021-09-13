@@ -48,3 +48,6 @@ version-bump-major:
 
 version-bump-dev:
 	go run cmd/tools/main.go bump --dev
+
+build-agent:
+	docker build -f postman-agent/Dockerfile . -t kubetest/postman-agent

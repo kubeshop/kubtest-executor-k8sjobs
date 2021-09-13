@@ -39,7 +39,6 @@ func (r *NewmanRunner) Run(execution kubtest.Execution) (result kubtest.Executio
 	}
 
 	var newmanResult NewmanExecutionResult
-
 	tmpName := tmp.Name() + ".json"
 	out, err := process.Execute("newman", "run", path, "-e", envpath, "--reporters", "cli,json", "--reporter-json-export", tmpName)
 	if err != nil {

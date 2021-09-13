@@ -23,7 +23,6 @@ func main() {
 		Long:  `kubtest`,
 		Run: func(cmd *cobra.Command, args []string) {
 			runner := &newman.NewmanRunner{}
-
 			result := runner.Run(kubtest.Execution{
 				ScriptContent: script,
 			})

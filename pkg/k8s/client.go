@@ -39,13 +39,9 @@ func (c *Client) LaunchK8sJob(jobName string, execution kubtest.Execution) *kubt
 	jobs := c.ClientSet.BatchV1().Jobs(c.Namespace)
 	var result string
 
-	//c.Cmd + parse workload here
 	image := "jasmingacic/test"
-
 	id := fmt.Sprintf("--id=%s", execution.Id)
 	script := fmt.Sprintf("--script=%s", execution.ScriptContent)
-
-	c.Cmd = fmt.Sprintf("./agent %s %s", id, script)
 
 	var backOffLimit int32 = 0
 	jobSpec := &batchv1.Job{
@@ -60,7 +56,7 @@ func (c *Client) LaunchK8sJob(jobName string, execution kubtest.Execution) *kubt
 						{
 							Name:            jobName,
 							Image:           image,
-							Command:         strings.Split(c.Cmd, " "),
+							Command:         []string{"agent", id, script},
 							ImagePullPolicy: v1.PullAlways,
 						},
 					},
@@ -71,24 +67,22 @@ func (c *Client) LaunchK8sJob(jobName string, execution kubtest.Execution) *kubt
 		},
 	}
 
-	_, err := jobs.Create(context.TODO(), jobSpec, metav1.CreateOptions{})
+	job, err := jobs.Create(context.TODO(), jobSpec, metav1.CreateOptions{})
 	if err != nil {
 		log.Println("Failed to create K8s job.", err)
 	}
 
 	//print job details
-	log.Println("Created K8s job successfully")
+	time.Sleep(2 * time.Second)
 
-	// pods, err := c.ClientSet.CoreV1().Pods("default").List(context.TODO(), metav1.ListOptions{LabelSelector: "job-name=" + job.Name})
-	pods, err := c.ClientSet.CoreV1().Pods("default").List(context.TODO(), metav1.ListOptions{})
+	pods, err := c.ClientSet.CoreV1().Pods("default").List(context.TODO(), metav1.ListOptions{LabelSelector: "job-name=" + job.Name})
+	// pods, err := c.ClientSet.CoreV1().Pods("default").List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		return &kubtest.ExecutionResult{
 			Status:       kubtest.ExecutionStatusError,
 			ErrorMessage: err.Error(),
 		}
 	}
-
-	log.Println("got %w pods", len(pods.Items))
 
 	for _, pod := range pods.Items {
 		if pod.Labels["job-name"] == jobName {
