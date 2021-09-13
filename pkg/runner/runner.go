@@ -3,7 +3,7 @@ package runner
 import (
 	"fmt"
 
-	"github.com/kubeshop/kubtest-executor-template/pkg/k8s"
+	"github.com/kubeshop/kubtest-executor-k8sjobs/pkg/k8s"
 	"github.com/kubeshop/kubtest/pkg/api/kubtest"
 )
 

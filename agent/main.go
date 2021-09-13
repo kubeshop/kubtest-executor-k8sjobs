@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/kubeshop/kubtest-executor-k8sjobs/pkg/agent/newman"
+	"github.com/kubeshop/kubtest-executor-k8sjobs/pkg/newman"
 	"github.com/kubeshop/kubtest/pkg/api/kubtest"
 	"github.com/spf13/cobra"
 )

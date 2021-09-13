@@ -2,7 +2,7 @@ package main
 
 import (
 	"github.com/kelseyhightower/envconfig"
-	"github.com/kubeshop/kubtest-executor-template/pkg/runner"
+	"github.com/kubeshop/kubtest-executor-k8sjobs/pkg/runner"
 	"github.com/kubeshop/kubtest/pkg/executor/repository/result"
 	"github.com/kubeshop/kubtest/pkg/executor/repository/storage"
 	"github.com/kubeshop/kubtest/pkg/executor/server"
