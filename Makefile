@@ -52,10 +52,10 @@ version-bump-dev:
 build-agents: build-postman-agent build-curl-agent build-cypress-agent
 
 build-postman-agent:
-	docker build -f agents/postman-agent/Dockerfile . -t kubtest/postman-agent
+	docker build -f agents/postman-agent/Dockerfile . -t jasmingacic/postman-agent:latest
 
 build-curl-agent:
-	docker build -f agents/curl-agent/Dockerfile . -t kubtest/curl-agent
+	docker build -f agents/curl-agent/Dockerfile . -t jasmingacic/curl-agent:latest
 
 build-cypress-agent:
-	docker build -f agents/cypress-agent/Dockerfile . -t kubtest/cypress-agent
+	docker build -f agents/cypress-agent/Dockerfile . -t jasmingacic/cypress-agent:latest

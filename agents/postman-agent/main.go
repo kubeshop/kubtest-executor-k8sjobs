@@ -1,41 +1,29 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 
 	"github.com/kubeshop/kubtest-executor-k8sjobs/pkg/newman"
 	"github.com/kubeshop/kubtest/pkg/api/kubtest"
-	"github.com/spf13/cobra"
-)
-
-var (
-	id         string
-	script     string
-	repository string
-	params     []string
 )
 
 func main() {
 
-	var RootCmd = &cobra.Command{
-		Use:   "kubtest",
-		Short: "kubtest entrypoint for plugin",
-		Long:  `kubtest`,
-		Run: func(cmd *cobra.Command, args []string) {
-			runner := &newman.NewmanRunner{}
-			result := runner.Run(kubtest.Execution{
-				ScriptContent: script,
-			})
-			fmt.Println(result)
-			fmt.Printf("$$$%s$$$", id)
-		},
+	args := os.Args
+	if len(args) == 1 {
+		fmt.Println("missing input argument")
+		os.Exit(1)
 	}
 
-	RootCmd.SilenceUsage = true
-	RootCmd.Flags().StringVarP(&id, "id", "i", "", "input script")
-	RootCmd.Flags().StringVarP(&script, "script", "s", "", "input script")
-	RootCmd.Flags().StringVarP(&repository, "repository", "r", "", "repository path")
-	RootCmd.Flags().StringArrayVarP(&params, "parameters", "p", []string{""}, "input script")
+	script := args[1]
 
-	RootCmd.Execute()
+	e := kubtest.Execution{}
+	json.Unmarshal([]byte(script), &e)
+	runner := &newman.NewmanRunner{}
+	result := runner.Run(e)
+
+	fmt.Println(result)
+	fmt.Printf("$$$%s$$$", e.Id)
 }

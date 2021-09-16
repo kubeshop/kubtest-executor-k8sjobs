@@ -2,6 +2,7 @@ package k8s
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -12,6 +13,7 @@ import (
 	"github.com/kubeshop/kubtest/pkg/api/kubtest"
 	batchv1 "k8s.io/api/batch/v1"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
@@ -32,6 +34,7 @@ func NewClient() (*Client, error) {
 
 	return &Client{
 		ClientSet: clientSet,
+		Namespace: "default",
 	}, nil
 }
 
@@ -39,10 +42,37 @@ func (c *Client) LaunchK8sJob(jobName string, execution kubtest.Execution) *kubt
 	jobs := c.ClientSet.BatchV1().Jobs(c.Namespace)
 	var result string
 
+	jsn, _ := json.Marshal(execution)
 	image := "jasmingacic/test"
-	id := fmt.Sprintf("--id=%s", execution.Id)
-	script := fmt.Sprintf("--script=%s", execution.ScriptContent)
 
+	if err := c.CreatePersistentVolume(jobName); err != nil {
+		return &kubtest.ExecutionResult{
+			Status:       kubtest.ExecutionStatusError,
+			ErrorMessage: err.Error(),
+		}
+	}
+
+	if err := wait.PollImmediate(time.Second, time.Duration(0)*time.Second, isPersistentVolumeBound(c.ClientSet, jobName, c.Namespace)); err != nil {
+		return &kubtest.ExecutionResult{
+			Status:       kubtest.ExecutionStatusError,
+			ErrorMessage: err.Error(),
+		}
+	}
+
+	if err := c.CreatePersistentVolumeClaim(jobName); err != nil {
+		return &kubtest.ExecutionResult{
+			Status:       kubtest.ExecutionStatusError,
+			ErrorMessage: err.Error(),
+		}
+	}
+	if err := wait.PollImmediate(time.Second, time.Duration(0)*time.Second, isPersistentVolumeClaimBound(c.ClientSet, jobName, c.Namespace)); err != nil {
+		return &kubtest.ExecutionResult{
+			Status:       kubtest.ExecutionStatusError,
+			ErrorMessage: err.Error(),
+		}
+	}
+
+	var TTLSecondsAfterFinished int32 = 1
 	var backOffLimit int32 = 0
 	jobSpec := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
@@ -50,32 +80,49 @@ func (c *Client) LaunchK8sJob(jobName string, execution kubtest.Execution) *kubt
 			Namespace: c.Namespace,
 		},
 		Spec: batchv1.JobSpec{
+			TTLSecondsAfterFinished: &TTLSecondsAfterFinished,
 			Template: v1.PodTemplateSpec{
 				Spec: v1.PodSpec{
 					Containers: []v1.Container{
 						{
 							Name:            jobName,
 							Image:           image,
-							Command:         []string{"agent", id, script},
+							Command:         []string{"agent", string(jsn)},
 							ImagePullPolicy: v1.PullAlways,
+							VolumeMounts: []v1.VolumeMount{
+								{
+									MountPath: "/",
+									Name:      jobName,
+								},
+							},
 						},
 					},
 					RestartPolicy: v1.RestartPolicyNever,
+					Volumes: []v1.Volume{
+						{
+							Name: jobName,
+							VolumeSource: v1.VolumeSource{
+								PersistentVolumeClaim: &v1.PersistentVolumeClaimVolumeSource{
+									ClaimName: jobName,
+								},
+							},
+						},
+					},
 				},
 			},
 			BackoffLimit: &backOffLimit,
 		},
 	}
 
-	job, err := jobs.Create(context.TODO(), jobSpec, metav1.CreateOptions{})
+	_, err := jobs.Create(context.TODO(), jobSpec, metav1.CreateOptions{})
 	if err != nil {
 		log.Println("Failed to create K8s job.", err)
 	}
 
 	//print job details
-	time.Sleep(2 * time.Second)
+	// time.Sleep(2 * time.Second)
 
-	pods, err := c.ClientSet.CoreV1().Pods("default").List(context.TODO(), metav1.ListOptions{LabelSelector: "job-name=" + job.Name})
+	pods, err := c.ClientSet.CoreV1().Pods("default").List(context.TODO(), metav1.ListOptions{LabelSelector: "job-name=" + jobName})
 	// pods, err := c.ClientSet.CoreV1().Pods("default").List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		return &kubtest.ExecutionResult{
@@ -83,12 +130,10 @@ func (c *Client) LaunchK8sJob(jobName string, execution kubtest.Execution) *kubt
 			ErrorMessage: err.Error(),
 		}
 	}
-
 	for _, pod := range pods.Items {
-		if pod.Labels["job-name"] == jobName {
-			if pod.Status.Phase == v1.PodSucceeded {
+		if pod.Status.Phase == v1.PodSucceeded {
+			if pod.Labels["job-name"] == jobName {
 				if err := wait.PollImmediate(time.Second, time.Duration(0)*time.Second, isPodRunning(c.ClientSet, pod.Name, c.Namespace)); err != nil {
-					fmt.Println(err)
 					return &kubtest.ExecutionResult{
 						Status:       kubtest.ExecutionStatusError,
 						ErrorMessage: err.Error(),
@@ -144,6 +189,40 @@ func isPodRunning(c *kubernetes.Clientset, podName, namespace string) wait.Condi
 	}
 }
 
+func isPersistentVolumeBound(c *kubernetes.Clientset, podName, namespace string) wait.ConditionFunc {
+	return func() (bool, error) {
+		pv, err := c.CoreV1().PersistentVolumes().Get(context.Background(), podName, metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+
+		switch pv.Status.Phase {
+		case v1.VolumeBound, v1.VolumeAvailable:
+			return true, nil
+		case v1.VolumeFailed:
+			return false, nil
+		}
+		return false, nil
+	}
+}
+
+func isPersistentVolumeClaimBound(c *kubernetes.Clientset, podName, namespace string) wait.ConditionFunc {
+	return func() (bool, error) {
+		pv, err := c.CoreV1().PersistentVolumeClaims(namespace).Get(context.Background(), podName, metav1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+
+		switch pv.Status.Phase {
+		case v1.ClaimBound:
+			return true, nil
+		case v1.ClaimLost:
+			return false, nil
+		}
+		return false, nil
+	}
+}
+
 func (c *Client) GetPodLogs(podName string, containerName string, endMessage string) (string, error) {
 	count := int64(100)
 	var toReturn string
@@ -185,4 +264,59 @@ func (c *Client) GetPodLogs(podName string, containerName string, endMessage str
 		}
 	}
 	return toReturn, nil
+}
+
+func (c *Client) CreatePersistentVolume(name string) error {
+	quantity, err := resource.ParseQuantity("10Gi")
+	if err != nil {
+		return err
+	}
+	pv := &v1.PersistentVolume{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   name,
+			Labels: map[string]string{"type": "local"},
+		},
+		Spec: v1.PersistentVolumeSpec{
+			Capacity:    v1.ResourceList{"storage": quantity},
+			AccessModes: []v1.PersistentVolumeAccessMode{v1.ReadWriteMany},
+			PersistentVolumeSource: v1.PersistentVolumeSource{
+				HostPath: &v1.HostPathVolumeSource{
+					Path: fmt.Sprintf("/mnt/data/%s", name),
+				},
+			},
+			StorageClassName: "manual",
+		},
+	}
+
+	if _, err = c.ClientSet.CoreV1().PersistentVolumes().Create(context.TODO(), pv, metav1.CreateOptions{}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (c *Client) CreatePersistentVolumeClaim(name string) error {
+	storageClassName := "manual"
+	quantity, err := resource.ParseQuantity("10Gi")
+	if err != nil {
+		return err
+	}
+
+	pvc := &v1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+		Spec: v1.PersistentVolumeClaimSpec{
+			StorageClassName: &storageClassName,
+			AccessModes:      []v1.PersistentVolumeAccessMode{v1.ReadWriteMany},
+			Resources: v1.ResourceRequirements{
+				Requests: v1.ResourceList{"storage": quantity},
+			},
+		},
+	}
+
+	if _, err := c.ClientSet.CoreV1().PersistentVolumeClaims(c.Namespace).Create(context.TODO(), pvc, metav1.CreateOptions{}); err != nil {
+		return err
+	}
+	return nil
 }
